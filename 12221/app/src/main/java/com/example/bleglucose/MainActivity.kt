@@ -32,7 +32,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+        // Use BluetoothManager for modern API
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        bluetoothAdapter = bluetoothManager.adapter
+
+        // Prompt the user to enable Bluetooth if it is off
+        promptEnableBluetooth()
 
         setContent {
             BleglucoseTheme {
@@ -48,7 +53,11 @@ class MainActivity : ComponentActivity() {
                                     Tab(
                                         text = { Text(title) },
                                         selected = selectedTab == index,
-                                        onClick = { selectedTab = index }
+                                        onClick = {
+                                            // Always stop scan when leaving SCANNER tab
+                                            if (selectedTab == 0 && scanning) stopBLEScan()
+                                            selectedTab = index
+                                        }
                                     )
                                 }
                             }
@@ -73,6 +82,30 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun promptEnableBluetooth() {
+        if (!bluetoothAdapter.isEnabled) {
+            // Check permission for Android 12 and above
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+            ) {
+                // Optionally, request permission here or show a message
+                Toast.makeText(this, "Bluetooth Connect permission required to enable Bluetooth.", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            startActivity(enableBtIntent)
+            Toast.makeText(this, "Bluetooth is required for this app.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onDestroy() {
+        super.onDestroy()
+        // Ensure scan is stopped and clean up
+        if (scanning) stopBLEScan()
     }
 
     @Composable
@@ -138,6 +171,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED
         ) {
+            Toast.makeText(this, "Bluetooth Scan permission required", Toast.LENGTH_SHORT).show()
             return
         }
         scanning = true
@@ -157,13 +191,14 @@ class MainActivity : ComponentActivity() {
     private val leScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
-
+            // Check permission before using device
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+                ActivityCompat.checkSelfPermission(
+                    this@MainActivity, Manifest.permission.BLUETOOTH_CONNECT
+                ) != PackageManager.PERMISSION_GRANTED
             ) {
                 return
             }
-
             if (result.device.name?.contains("GlucoseDevice") == true) {
                 stopBLEScan()
                 connectDevice(result.device)
@@ -173,7 +208,9 @@ class MainActivity : ComponentActivity() {
 
     private fun connectDevice(device: BluetoothDevice) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(this, "Bluetooth Connect permission required", Toast.LENGTH_SHORT).show()
             return
         }
         device.connectGatt(this, false, object : BluetoothGattCallback() {
@@ -183,13 +220,18 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this@MainActivity, "Device Paired and Connected", Toast.LENGTH_SHORT).show()
                     }
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                        ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.checkSelfPermission(
+                            this@MainActivity, Manifest.permission.BLUETOOTH_CONNECT
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
                         gatt.discoverServices()
                     }
                 }
             }
-
-            override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            @Suppress("DEPRECATION")
+            override fun onCharacteristicChanged(
+                gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic
+            ) {
                 val rawData = characteristic.value
                 transmitDataToGraph(rawData)
             }

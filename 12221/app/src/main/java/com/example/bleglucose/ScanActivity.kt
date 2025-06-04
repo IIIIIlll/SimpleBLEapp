@@ -3,6 +3,7 @@ package com.example.bleglucose
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.*
 import android.content.pm.PackageManager
 import android.os.Build
@@ -14,7 +15,7 @@ import androidx.core.content.ContextCompat
 
 class ScanActivity : AppCompatActivity() {
 
-    private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private var bluetoothAdapter: BluetoothAdapter? = null
     private val deviceList = mutableListOf<BluetoothDevice>()
     private lateinit var listView: ListView
     private lateinit var adapter: ArrayAdapter<String>
@@ -25,25 +26,31 @@ class ScanActivity : AppCompatActivity() {
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == BluetoothDevice.ACTION_FOUND) {
+
+                // Permission check for SCAN
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (ContextCompat.checkSelfPermission(this@ScanActivity, Manifest.permission.BLUETOOTH_SCAN)
+                        != PackageManager.PERMISSION_GRANTED) {
+                        return
+                    }
+                }
+
                 val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
                 val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
                 device?.let {
-                    if (!deviceList.contains(it)) {
+                    // Filtering logic
+                    val isNearby = rssi > -70
+                    val isGlucoseMeter = it.name?.contains("GlucoseDevice", ignoreCase = true) == true
+                    val isNotAlreadyListed = deviceList.none { d -> d.address == it.address }
+                    if (isNearby && isGlucoseMeter && isNotAlreadyListed) {
                         deviceList.add(it)
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                            ContextCompat.checkSelfPermission(
-                                this@ScanActivity,
-                                Manifest.permission.BLUETOOTH_CONNECT
-                            ) == PackageManager.PERMISSION_GRANTED
-                        ) {
-                            val deviceInfo = """
-                                |${it.name ?: "N/A"}
-                                |RSSI: $rssi dBm
-                                |Address: ${it.address}
-                                |${if (it.bondState == BluetoothDevice.BOND_BONDED) "Bonded" else "Not bonded"}
-                            """.trimMargin()
-                            adapter.add(deviceInfo)
-                        }
+                        val deviceInfo = """
+                            |${it.name ?: "N/A"}
+                            |RSSI: $rssi dBm
+                            |Address: ${it.address}
+                            |${if (it.bondState == BluetoothDevice.BOND_BONDED) "Bonded" else "Not bonded"}
+                        """.trimMargin()
+                        adapter.add(deviceInfo)
                     }
                 }
             }
@@ -53,6 +60,10 @@ class ScanActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scan)
+
+        // Initialize BluetoothManager and BluetoothAdapter
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        bluetoothAdapter = bluetoothManager.adapter
 
         listView = findViewById(R.id.device_list)
         toggleButton = findViewById(R.id.scan_toggle)
