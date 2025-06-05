@@ -52,6 +52,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
     implementation ("androidx.compose.material:material-icons-extended:1.6.1")
+    implementation ("androidx.compose.material:material-icons-extended")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

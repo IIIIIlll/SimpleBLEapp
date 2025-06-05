@@ -2,12 +2,14 @@ package com.example.bleglucose
 
 import android.Manifest
 import android.bluetooth.*
-import android.content.Intent
+import android.content.*
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -25,6 +27,7 @@ class DeviceActivity : AppCompatActivity() {
     private val GLUCOSE_MEASUREMENT_UUID = UUID.fromString("00002a18-0000-1000-8000-00805f9b34fb")
 
     private val REQUEST_BLUETOOTH_CONNECT = 100
+    private val REQUEST_ENABLE_BLUETOOTH = 101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,8 +35,9 @@ class DeviceActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tv_status)
         btnStartGraph = findViewById(R.id.btn_start_graph)
 
-        // Check Bluetooth connect permission before connecting
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+        if (!isBluetoothOn()) {
+            showBluetoothPrompt()
+        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
             != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(
@@ -52,6 +56,50 @@ class DeviceActivity : AppCompatActivity() {
         }
     }
 
+    private fun isBluetoothOn(): Boolean {
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        val adapter = bluetoothManager.adapter
+        return adapter?.isEnabled == true
+    }
+
+    private fun showBluetoothPrompt() {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Bluetooth Required")
+            .setMessage("This app needs Bluetooth to connect to your device. Please turn on Bluetooth.")
+            .setCancelable(false)
+            .setPositiveButton("Go to Settings") { _, _ ->
+                val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+                startActivityForResult(intent, REQUEST_ENABLE_BLUETOOTH)
+            }
+            .setNegativeButton("Cancel") { _, _ ->
+                tvStatus.text = "Bluetooth is required. Please enable it in settings."
+            }
+            .create()
+        dialog.show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        // When returning from Bluetooth settings, check again
+        if (requestCode == REQUEST_ENABLE_BLUETOOTH) {
+            if (isBluetoothOn()) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                    == PackageManager.PERMISSION_GRANTED
+                ) {
+                    startBluetoothConnection()
+                } else {
+                    ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+                        REQUEST_BLUETOOTH_CONNECT
+                    )
+                }
+            } else {
+                tvStatus.text = "Bluetooth is still off. Please enable it."
+            }
+        }
+    }
+
     private fun startBluetoothConnection() {
         val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra("device", BluetoothDevice::class.java)
@@ -60,14 +108,18 @@ class DeviceActivity : AppCompatActivity() {
             intent.getParcelableExtra<BluetoothDevice>("device")
         }
 
-        tvStatus.text = "Connecting to: ${device?.name ?: device?.address}"
+        if (device == null) {
+            tvStatus.text = "No device provided to connect."
+            return
+        }
 
-        if (device != null &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+        tvStatus.text = "Connecting to: ${device.name ?: device.address}"
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
             == PackageManager.PERMISSION_GRANTED
         ) {
             try {
-                bluetoothGatt = device.connectGatt(this, false, gattCallback)
+                bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
             } catch (e: SecurityException) {
                 tvStatus.text = "Bluetooth connect not allowed by system"
             }
@@ -129,6 +181,7 @@ class DeviceActivity : AppCompatActivity() {
                 runOnUiThread { tvStatus.text = "Service discovery not allowed by system" }
             }
         }
+
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
