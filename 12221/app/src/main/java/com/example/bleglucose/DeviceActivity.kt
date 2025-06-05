@@ -129,7 +129,7 @@ class DeviceActivity : AppCompatActivity() {
                 runOnUiThread { tvStatus.text = "Service discovery not allowed by system" }
             }
         }
-
+        @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic

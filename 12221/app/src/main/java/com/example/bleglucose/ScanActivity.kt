@@ -1,14 +1,16 @@
 package com.example.bleglucose
 
 import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.bluetooth.*
+import android.bluetooth.le.*
 import android.content.*
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.*
+import androidx.annotation.RequiresPermission
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -16,6 +18,7 @@ import androidx.core.content.ContextCompat
 class ScanActivity : AppCompatActivity() {
 
     private var bluetoothAdapter: BluetoothAdapter? = null
+    private var bluetoothLeScanner: BluetoothLeScanner? = null
     private val deviceList = mutableListOf<BluetoothDevice>()
     private lateinit var listView: ListView
     private lateinit var adapter: ArrayAdapter<String>
@@ -23,47 +26,16 @@ class ScanActivity : AppCompatActivity() {
     private val permissionRequestCode = 1001
     private var scanning = false
 
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == BluetoothDevice.ACTION_FOUND) {
+    private var scanCallback: ScanCallback? = null
 
-                // Permission check for SCAN
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    if (ContextCompat.checkSelfPermission(this@ScanActivity, Manifest.permission.BLUETOOTH_SCAN)
-                        != PackageManager.PERMISSION_GRANTED) {
-                        return
-                    }
-                }
-
-                val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-                val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
-                device?.let {
-                    // Filtering logic
-                    val isNearby = rssi > -70
-                    val isGlucoseMeter = it.name?.contains("GlucoseDevice", ignoreCase = true) == true
-                    val isNotAlreadyListed = deviceList.none { d -> d.address == it.address }
-                    if (isNearby && isGlucoseMeter && isNotAlreadyListed) {
-                        deviceList.add(it)
-                        val deviceInfo = """
-                            |${it.name ?: "N/A"}
-                            |RSSI: $rssi dBm
-                            |Address: ${it.address}
-                            |${if (it.bondState == BluetoothDevice.BOND_BONDED) "Bonded" else "Not bonded"}
-                        """.trimMargin()
-                        adapter.add(deviceInfo)
-                    }
-                }
-            }
-        }
-    }
-
+    @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scan)
 
-        // Initialize BluetoothManager and BluetoothAdapter
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
+        bluetoothLeScanner = bluetoothAdapter?.bluetoothLeScanner
 
         listView = findViewById(R.id.device_list)
         toggleButton = findViewById(R.id.scan_toggle)
@@ -80,12 +52,12 @@ class ScanActivity : AppCompatActivity() {
             requestPermissions()
         }
 
-        toggleButton.setOnClickListener {
+        toggleButton.setOnClickListener @androidx.annotation.RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN) {
             if (scanning) {
                 stopScanning()
             } else {
                 if (hasPermissions()) {
-                    startScanning()
+                  startScanning()
                 } else {
                     requestPermissions()
                 }
@@ -122,23 +94,70 @@ class ScanActivity : AppCompatActivity() {
         ActivityCompat.requestPermissions(this, requiredPermissions(), permissionRequestCode)
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     private fun startScanning() {
-        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
-        registerReceiver(receiver, filter)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
-            bluetoothAdapter?.startDiscovery()
-            scanning = true
-            toggleButton.text = "Stop Scanning"
+        // Reset list
+        adapter.clear()
+        deviceList.clear()
+
+        if (bluetoothLeScanner == null) {
+            bluetoothLeScanner = bluetoothAdapter?.bluetoothLeScanner
         }
+
+        scanCallback = object : ScanCallback() {
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val device = result.device
+                val rssi = result.rssi
+                // Flexible filtering, adjust or remove as needed
+                val name = device.name ?: ""
+                val matches = name.contains("glucose", true)
+                        || name.contains("cgm", true)
+                        || name.contains("dexcom", true)
+                        || name.contains("libre", true)
+                        || name.contains("abbott", true)
+                        || name.contains("medtronic", true)
+                        || name.isNotEmpty() // Show any named device for debugging
+                val isNotAlreadyListed = deviceList.none { d -> d.address == device.address }
+
+                if (matches && isNotAlreadyListed && rssi > -90) {
+                    deviceList.add(device)
+                    val deviceInfo = """
+                        |${device.name ?: "N/A"}
+                        |RSSI: $rssi dBm
+                        |Address: ${device.address}
+                        |${if (device.bondState == BluetoothDevice.BOND_BONDED) "Bonded" else "Not bonded"}
+                    """.trimMargin()
+                    adapter.add(deviceInfo)
+                }
+            }
+
+            override fun onScanFailed(errorCode: Int) {
+                Toast.makeText(this@ScanActivity, "BLE Scan failed: $errorCode", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        bluetoothLeScanner?.startScan(scanCallback)
+        scanning = true
+        toggleButton.text = "Stop Scanning"
     }
 
     private fun stopScanning() {
-        unregisterReceiver(receiver)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
-            bluetoothAdapter?.cancelDiscovery()
+        scanCallback?.let { if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_SCAN
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return
         }
+            bluetoothLeScanner?.stopScan(it) }
         scanning = false
         toggleButton.text = "Start Scanning"
     }
@@ -148,6 +167,7 @@ class ScanActivity : AppCompatActivity() {
         if (scanning) stopScanning()
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
