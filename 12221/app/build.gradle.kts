@@ -49,10 +49,12 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
     implementation ("androidx.compose.material:material-icons-extended:1.6.1")
     implementation ("androidx.compose.material:material-icons-extended")
+    implementation ("com.itextpdf:itext7-core:7.2.2")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
