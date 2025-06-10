@@ -1,23 +1,10 @@
-/*
-Test Device: PCA10040
-Firmware: 2.1.0
-Date: 2021.10
-Serial: 6823550797
-
-Issue:
-When starting the scanning stage, no devices are popping up.
-
-Notes:
-- BLE permission and BLE toggle need to be ON.
-- Once you have all that, you might start seeing callbacks.
-- If devices are still not found, check permission handling and device advertisement.
-*/
 package com.example.bleglucose
 
 import android.Manifest
 import android.app.Activity
 import android.bluetooth.*
 import android.bluetooth.le.*
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -144,10 +131,8 @@ class MainActivity : ComponentActivity() {
     private val dashboardViewModel: DashboardViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
 
-    // For activity result if you want to launch a camera/barcode scan
     private val barcodeLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            // TODO: Handle the scan result here
             Toast.makeText(this, "Manual scan result received", Toast.LENGTH_SHORT).show()
         }
     }
@@ -271,15 +256,7 @@ class MainActivity : ComponentActivity() {
 
     fun launchManualScan() {
         if (!ensureCameraPermission()) return
-        // Show a Toast for now, you can wire in ZXing/ML Kit later here
         Toast.makeText(this, "Launching manual scan (camera)...", Toast.LENGTH_SHORT).show()
-
-        // --- ZXing INTENT EXAMPLE ---
-        // val intent = Intent("com.google.zxing.client.android.SCAN")
-        // barcodeLauncher.launch(intent)
-
-        // --- ML Kit Example (Needs custom CameraX activity) ---
-        // startActivity(Intent(this, YourBarcodeScannerActivity::class.java))
     }
 
     @Suppress("DEPRECATION")
@@ -413,6 +390,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ===== NEW PDF FUNCTION: downloads to user-visible folder =====
     fun generatePdf(context: Context, readings: List<Float>) {
         val document = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(300, 600, 1).create()
@@ -426,13 +404,39 @@ class MainActivity : ComponentActivity() {
             canvas.drawText("Reading ${i + 1}: $value mg/dL", 50f, 70f + 20 * i, paint)
         }
         document.finishPage(page)
-        val file = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),
-            "glucose_readings.pdf"
-        )
-        FileOutputStream(file).use { document.writeTo(it) }
-        document.close()
-        Toast.makeText(context, "PDF saved to ${file.absolutePath}", Toast.LENGTH_LONG).show()
+
+        val filename = "glucose_readings.pdf"
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = context.contentResolver
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { output ->
+                        document.writeTo(output)
+                    }
+                    Toast.makeText(context, "PDF saved to Downloads!", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "Failed to save PDF", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val file = File(downloadsDir, filename)
+                FileOutputStream(file).use { document.writeTo(it) }
+                context.sendBroadcast(Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, android.net.Uri.fromFile(file)))
+                Toast.makeText(context, "PDF saved to Downloads!", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error saving PDF: ${e.message}", Toast.LENGTH_LONG).show()
+            e.printStackTrace()
+        } finally {
+            document.close()
+        }
     }
 
     // ===== SCAN TAB =====
@@ -673,43 +677,14 @@ class MainActivity : ComponentActivity() {
             ) {
                 return
             }
-            if (result.device.name?.contains("GlucoseDevice") == true) {
-                stopBLEScan()
-                connectDevice(result.device)
-            }
+            val deviceName = result.device.name ?: "Unknown"
+            val deviceAddress = result.device.address
+            Toast.makeText(this@MainActivity, "Found BLE: $deviceName ($deviceAddress)", Toast.LENGTH_SHORT).show()
+            println("Found BLE: $deviceName ($deviceAddress)")
         }
     }
 
     private fun connectDevice(device: BluetoothDevice) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-        ) {
-            Toast.makeText(this, "Bluetooth Connect permission required", Toast.LENGTH_SHORT).show()
-            return
-        }
-        device.connectGatt(this, false, object : BluetoothGattCallback() {
-            override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, "Device Paired and Connected", Toast.LENGTH_SHORT).show()
-                    }
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                        ActivityCompat.checkSelfPermission(
-                            this@MainActivity, Manifest.permission.BLUETOOTH_CONNECT
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        gatt.discoverServices()
-                    }
-                }
-            }
-            @Suppress("DEPRECATION")
-            override fun onCharacteristicChanged(
-                gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic
-            ) {
-                val rawData = characteristic.value
-                val glucoseValue = rawData.first().toFloat() // replace with your parsing
-                dashboardViewModel.updateGlucose(glucoseValue)
-            }
-        })
+        // Implement connection logic as needed
     }
 }
