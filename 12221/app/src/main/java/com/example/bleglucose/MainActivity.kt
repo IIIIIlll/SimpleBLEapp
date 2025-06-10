@@ -1,6 +1,21 @@
+/*
+Test Device: PCA10040
+Firmware: 2.1.0
+Date: 2021.10
+Serial: 6823550797
+
+Issue:
+When starting the scanning stage, no devices are popping up.
+
+Notes:
+- BLE permission and BLE toggle need to be ON.
+- Once you have all that, you might start seeing callbacks.
+- If devices are still not found, check permission handling and device advertisement.
+*/
 package com.example.bleglucose
 
 import android.Manifest
+import android.app.Activity
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
@@ -12,9 +27,11 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -41,7 +58,6 @@ import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.delay
-
 
 // ===== DASHBOARD VIEWMODEL =====
 class DashboardViewModel : androidx.lifecycle.ViewModel() {
@@ -123,9 +139,18 @@ class MainActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var scanning by mutableStateOf(false)
     private val PERMISSION_REQUEST_CODE = 101
+    private val CAMERA_PERMISSION_CODE = 201
 
     private val dashboardViewModel: DashboardViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
+
+    // For activity result if you want to launch a camera/barcode scan
+    private val barcodeLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            // TODO: Handle the scan result here
+            Toast.makeText(this, "Manual scan result received", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -170,7 +195,8 @@ class MainActivity : ComponentActivity() {
                         BottomNavItem("Scan", Icons.Default.Wifi) {
                             ScanScreen(
                                 scanning = scanning,
-                                onScanToggle = { toggleScan() }
+                                onScanToggle = { toggleScan() },
+                                onManualScan = { launchManualScan() }
                             )
                         },
                         BottomNavItem("Configure", Icons.Default.Build) { ConfigureScreen() },
@@ -218,6 +244,42 @@ class MainActivity : ComponentActivity() {
             startActivity(enableBtIntent)
             Toast.makeText(this, "Bluetooth is required for this app.", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun ensureBleReady(): Boolean {
+        if (!hasPermissions()) {
+            ActivityCompat.requestPermissions(this, requiredPermissions(), PERMISSION_REQUEST_CODE)
+            Toast.makeText(this, "BLE permission required", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (!bluetoothAdapter.isEnabled) {
+            promptEnableBluetooth()
+            Toast.makeText(this, "Bluetooth is OFF. Please enable Bluetooth.", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        return true
+    }
+
+    private fun ensureCameraPermission(): Boolean {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_CODE)
+            Toast.makeText(this, "Camera permission required for manual scan", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        return true
+    }
+
+    fun launchManualScan() {
+        if (!ensureCameraPermission()) return
+        // Show a Toast for now, you can wire in ZXing/ML Kit later here
+        Toast.makeText(this, "Launching manual scan (camera)...", Toast.LENGTH_SHORT).show()
+
+        // --- ZXing INTENT EXAMPLE ---
+        // val intent = Intent("com.google.zxing.client.android.SCAN")
+        // barcodeLauncher.launch(intent)
+
+        // --- ML Kit Example (Needs custom CameraX activity) ---
+        // startActivity(Intent(this, YourBarcodeScannerActivity::class.java))
     }
 
     @Suppress("DEPRECATION")
@@ -377,7 +439,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun ScanScreen(
         scanning: Boolean,
-        onScanToggle: () -> Unit
+        onScanToggle: () -> Unit,
+        onManualScan: () -> Unit
     ) {
         Column(
             modifier = Modifier
@@ -393,6 +456,14 @@ class MainActivity : ComponentActivity() {
                 containerColor = if (scanning) Color.Red else Color.Green
             ) {
                 Text(if (scanning) "Stop Scanning" else "Start Scan")
+            }
+            Spacer(Modifier.height(32.dp))
+            Button(
+                onClick = onManualScan
+            ) {
+                Icon(Icons.Default.CameraAlt, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Manual Scan (Use Camera)")
             }
         }
     }
@@ -547,10 +618,7 @@ class MainActivity : ComponentActivity() {
 
     // ===== BLE SCAN LOGIC =====
     private fun toggleScan() {
-        if (!hasPermissions()) {
-            ActivityCompat.requestPermissions(this, requiredPermissions(), PERMISSION_REQUEST_CODE)
-            return
-        }
+        if (!ensureBleReady()) return
         if (!scanning) startBLEScan() else stopBLEScan()
     }
 
