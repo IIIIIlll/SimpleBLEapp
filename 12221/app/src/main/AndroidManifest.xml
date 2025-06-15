@@ -2,16 +2,29 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Add BLE and Location permissions -->
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
-    <uses-permission android:name="android.permission.BLUETOOTH"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <!-- Bluetooth permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
+    <!-- Location permissions (only needed for Android 11 and below) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Foreground service permission for notifications -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Add this if targeting Android 12+ -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -35,10 +48,16 @@
             </intent-filter>
         </activity>
 
-        <!-- Add these activities for navigation -->
-        <activity android:name=".ScanActivity"/>
-        <activity android:name=".DeviceActivity"/>
-        <activity android:name=".GraphActivity"/>
-    </application>
+        <!-- Other Activities -->
+        <activity android:name=".ScanActivity" />
+        <activity android:name=".DeviceActivity" />
+        <activity android:name=".GraphActivity" />
 
+        <!-- Add this service declaration for Bluetooth notifications -->
+        <service
+            android:name=".ScanActivity"
+            android:enabled="true"
+            android:exported="false"
+            tools:ignore="MissingClass" />
+    </application>
 </manifest>
