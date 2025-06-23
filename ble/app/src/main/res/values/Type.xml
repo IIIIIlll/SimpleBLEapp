@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Example of dimension type -->
+    <dimen name="default_margin">16dp</dimen>
+    <dimen name="default_padding">12dp</dimen>
+    <dimen name="text_size_large">18sp</dimen>
+    <dimen name="text_size_small">14sp</dimen>
+
+</resources>

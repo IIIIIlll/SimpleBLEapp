@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BLE Scanner</string>
+
+    <!-- General -->
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- BLE-specific -->
+    <string name="ble_scanning">Scanning for devices...</string>
+    <string name="ble_device_found">Device found</string>
+    <string name="ble_connecting">Connecting to device...</string>
+    <string name="ble_connected">Connected</string>
+    <string name="ble_disconnected">Disconnected</string>
+    <string name="ble_not_supported">BLE is not supported on this device.</string>
+    <string name="ble_permission_required">Bluetooth permission required to scan for devices.</string>
+    <string name="start_scan">Start Scan</string>
+    <string name="stop_scan">Stop Scan</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="device_name_unknown">Unknown Device</string>
+    <string name="no_devices_found">No BLE devices found.</string>
+</resources>
+
